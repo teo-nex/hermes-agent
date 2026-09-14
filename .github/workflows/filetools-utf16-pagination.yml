@@ -32,3 +32,11 @@ jobs:
         env:
           HERMES_PYTHON: ${{ runner.temp }}/filetools-venv/bin/python
         run: scripts/run_tests.sh tests/tools/test_utf16_pagination.py tests/tools/test_utf16_read.py -j 2 --file-retries 0
+      - name: Check adjacent read behavior
+        env:
+          HERMES_PYTHON: ${{ runner.temp }}/filetools-venv/bin/python
+        run: scripts/run_tests.sh tests/tools/test_file_operations_edge_cases.py tests/tools/test_read_file_utf8_binary_regression.py tests/tools/test_file_ops_single_roundtrip.py -k read -j 2 --file-retries 0
+      - name: Lint changed Python files
+        env:
+          HERMES_PYTHON: ${{ runner.temp }}/filetools-venv/bin/python
+        run: '"$HERMES_PYTHON" -m ruff check tools/file_operations.py tests/tools/test_utf16_pagination.py'
