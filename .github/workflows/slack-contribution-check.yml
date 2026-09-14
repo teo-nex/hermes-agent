@@ -1,0 +1,73 @@
+name: Slack contribution validation
+
+on:
+  push:
+    branches: [ci/slack-system-message-filter]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Slack regression - ${{ matrix.revision }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        revision: [before, after]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          version: "0.9.28"
+          enable-cache: false
+      - name: Install locked development and Slack dependencies
+        run: uv sync --locked --python 3.11 --extra dev --extra slack
+      - name: Restore unmodified upstream adapter
+        if: matrix.revision == 'before'
+        run: git restore --source=5eb99eb2844b22ebb723711b8e6a0bbb80bb5f04 -- plugins/platforms/slack/adapter.py
+      - name: Run regression against upstream and require behavioral failure
+        if: matrix.revision == 'before'
+        shell: bash
+        run: |
+          set +e
+          scripts/run_tests.sh tests/gateway/test_slack_system_messages.py --file-retries 0 > validation-before.log 2>&1
+          result=$?
+          set -e
+          tail -n 100 validation-before.log
+          test "$result" -eq 1
+          .venv/bin/python - <<'PY'
+          from pathlib import Path
+          output = Path("validation-before.log").read_text()
+          assert "test_only_conversational_messages_reach_the_agent" in output, output[-3000:]
+          assert "AssertionError" in output, output[-3000:]
+          assert "ERROR collecting" not in output, output[-3000:]
+          assert "ModuleNotFoundError" not in output, output[-3000:]
+          print("CONFIRMED: the regression fails on unmodified upstream behavior.")
+          PY
+      - name: Check regression test style
+        if: matrix.revision == 'after'
+        run: .venv/bin/ruff check tests/gateway/test_slack_system_messages.py
+      - name: Run all Slack adapter regression tests
+        if: matrix.revision == 'after'
+        shell: bash
+        run: |
+          set +e
+          scripts/run_tests.sh tests/gateway/test_slack*.py -j 2 --file-retries 0 > validation-after.log 2>&1
+          result=$?
+          set -e
+          tail -n 140 validation-after.log
+          exit "$result"
+      - name: Preserve validation logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: slack-validation-${{ matrix.revision }}
+          path: validation-*.log
+          if-no-files-found: ignore
+          retention-days: 14
