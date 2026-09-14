@@ -1,0 +1,58 @@
+name: CLI Bash profile completion validation
+
+on:
+  push:
+    branches:
+      - ci/cli-bash-profile-completion
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout validation branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          clean: false
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          version: "0.9.28"
+          enable-cache: false
+
+      - name: Install locked test dependencies
+        run: uv sync --locked --python 3.11 --extra dev
+
+      - name: Regression on original source
+        id: before
+        continue-on-error: true
+        run: |
+          scripts/run_tests.sh tests/hermes_cli/test_bash_profile_completion.py -j 1 --file-retries 0 -q --junitxml="$RUNNER_TEMP/cli-before.xml"
+
+      - name: Verify the failure is the completion bug
+        if: always() && steps.before.outcome != 'skipped'
+        env:
+          BEFORE_OUTCOME: ${{ steps.before.outcome }}
+        run: |
+          .venv/bin/python - <<'PY'
+          import os
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          assert os.environ["BEFORE_OUTCOME"] == "failure", "Regression unexpectedly passed."
+          report = Path(os.environ["RUNNER_TEMP"]) / "cli-before.xml"
+          root = ET.parse(report).getroot()
+          cases = list(root.iter("testcase"))
+          failures = list(root.iter("failure"))
+          assert len(cases) == 13, f"Expected 13 regression cases; found {len(cases)}."
+          assert not list(root.iter("error")), "Collection/setup errors are not bug evidence."
+          assert not list(root.iter("skipped")), "Regression cases must actually execute."
+          assert len(failures) == 13, f"Expected 13 assertion failures; found {len(failures)}."
+          assert all("assert [] ==" in (failure.text or "") for failure in failures)
+          print("Confirmed: all 13 cases fail because profile-prefixed Bash completion returns no candidates.")
+          PY
