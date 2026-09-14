@@ -1,0 +1,68 @@
+name: MoA numeric configuration validation
+on:
+  push:
+    branches: [ci/moa-numeric-config]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        revision: [before, after]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          version: "0.9.28"
+          enable-cache: false
+      - name: Install locked development dependencies
+        run: uv sync --locked --python 3.11 --extra dev --extra anthropic
+      - name: Restore original normalization
+        if: matrix.revision == 'before'
+        run: git restore --source=5eb99eb2844b22ebb723711b8e6a0bbb80bb5f04 -- hermes_cli/moa_config.py
+      - name: Prove both failures on unchanged upstream
+        if: matrix.revision == 'before'
+        run: |
+          set +e
+          scripts/run_tests.sh tests/hermes_cli/test_moa_numeric_config.py --file-retries 0 > validation-before.log 2>&1
+          result=$?
+          set -e
+          tail -n 110 validation-before.log
+          test "$result" -eq 1
+          .venv/bin/python - <<'PY'
+          from pathlib import Path
+          output = Path("validation-before.log").read_text()
+          assert "test_moa_list_tolerates_nonfinite_fanout" in output
+          assert "test_nonfinite_temperatures_do_not_escape_into_json" in output
+          assert "ERROR collecting" not in output
+          assert "ModuleNotFoundError" not in output
+          assert "OverflowError" in output
+          print("BOTH_NUMERIC_REGRESSIONS_CONFIRMED")
+          PY
+      - name: Lint the new regressions
+        if: matrix.revision == 'after'
+        run: .venv/bin/ruff check tests/hermes_cli/test_moa_numeric_config.py
+      - name: Run MoA configuration and runtime tests
+        if: matrix.revision == 'after'
+        run: |
+          set +e
+          scripts/run_tests.sh tests/hermes_cli/test_moa*.py tests/agent/test_moa*.py tests/gateway/test_moa*.py -j 2 --file-retries 0 > validation-after.log 2>&1
+          result=$?
+          set -e
+          tail -n 160 validation-after.log
+          exit "$result"
+      - name: Preserve logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: moa-numeric-${{ matrix.revision }}
+          path: validation-*.log
+          retention-days: 14
+          if-no-files-found: ignore
