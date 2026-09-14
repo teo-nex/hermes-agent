@@ -4255,7 +4255,7 @@ class SlackAdapter(BasePlatformAdapter):
 
     async def _prefilter_inbound(
         self, event: dict, payload: Optional[dict]) -> Optional[Tuple[dict, str, str]]:
-        """Normalize edits, then drop replays / ignored channels / bot posts / deletions.
+        """Normalize edits, then drop replays / ignored channels / system notices / bot posts.
         Returns ``(event, team_id, channel_id)`` for messages the handler should consider."""
         # Entry log BEFORE any filtering so operators can tell "dropped here"
         # from "never subscribed in the manifest". Metadata only, never text.
@@ -4287,10 +4287,15 @@ class SlackAdapter(BasePlatformAdapter):
         if self._is_ignored_channel(channel_id):
             logger.info("[Slack] Ignoring message in configured ignored channel %s", channel_id)
             return None
-        if await self._drop_bot_sender(event):
+        # Slack lifecycle notices carry user/text too, but are not conversation.
+        # Edits keep their inner subtype after normalization; bot posts still obey allow_bots.
+        # https://docs.slack.dev/reference/events/message/
+        if event.get("subtype") not in {
+            None, "", "bot_message", "file_share", "file_mention", "file_comment",
+            "me_message", "thread_broadcast", "reply_broadcast", "document_mention",
+        }:
             return None
-        # Edits were normalized above so an @mention added by edit can wake the bot once.
-        if event.get("subtype") == "message_deleted":
+        if await self._drop_bot_sender(event):
             return None
         return event, dedup_team_id, channel_id
 
