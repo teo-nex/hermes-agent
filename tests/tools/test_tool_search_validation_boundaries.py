@@ -6,6 +6,19 @@ import pytest
 
 
 @pytest.mark.parametrize(
+    "keyword",
+    ["$defs", "definitions", "dependencies", "dependentSchemas", "patternProperties", "properties"],
+)
+def test_schema_map_names_do_not_change_value_normalization(keyword):
+    from tools.tool_search_validation import _schema_for_local_validation
+
+    schema = {"type": "integer", "nullable": True}
+    normalized = _schema_for_local_validation({keyword: {"nullable": schema}})
+
+    assert normalized[keyword]["nullable"] == _schema_for_local_validation(schema)
+
+
+@pytest.mark.parametrize(
     ("value", "should_dispatch"),
     [
         (7, True),

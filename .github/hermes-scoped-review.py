@@ -21,6 +21,7 @@ code, output = run("fixed", review["suites"])
 if code or "NO TESTS RAN" in output:
     print(output[-24000:])
     raise SystemExit(1)
+subprocess.run(["git", "fetch", "--no-tags", "--depth=1", "origin", review["base"]], check=True)
 for source in review["sources"]:
     Path(source).write_bytes(subprocess.check_output(["git", "show", review["base"] + ":" + source]))
 code, output = run("baseline", review["regressions"])

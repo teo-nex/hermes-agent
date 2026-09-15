@@ -15,7 +15,7 @@ logger = logging.getLogger("tools.tool_search")
 
 _SCHEMA_LITERAL_KEYS = frozenset({"const", "default", "enum", "example", "examples"})
 _SCHEMA_MAP_KEYS = frozenset({
-    "$defs", "definitions", "dependentSchemas", "patternProperties", "properties",
+    "$defs", "definitions", "dependencies", "dependentSchemas", "patternProperties", "properties",
 })
 
 
